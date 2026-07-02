@@ -221,8 +221,24 @@ func inspect(v any) string {
 		return "#<Date: " + x.String() + ">"
 	case time.Time:
 		return x.String()
+	case *Map:
+		return mapInspect(x)
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+// mapInspect renders a *Map the way Ruby 4.0's Hash#inspect does: `{k => v}` for
+// non-symbol keys and the `sym: v` shorthand for symbol keys.
+func mapInspect(m *Map) string {
+	parts := make([]string, 0, m.Len())
+	for _, p := range m.Pairs() {
+		if sym, ok := p.Key.(Symbol); ok {
+			parts = append(parts, string(sym)+": "+inspect(p.Val))
+		} else {
+			parts = append(parts, inspect(p.Key)+" => "+inspect(p.Val))
+		}
+	}
+	return "{" + strings.Join(parts, ", ") + "}"
 }
 
 // rubyStringInspect renders a Go string the way Ruby's String#inspect does for

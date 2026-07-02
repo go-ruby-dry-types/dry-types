@@ -34,10 +34,11 @@ type SchemaKey struct {
 	Optional bool
 }
 
-// HashSchema is a struct-hash type (dry-types' `Hash.schema({...})`). Build one
-// with [NewSchema], refine with [HashSchema.Strict], and apply via Call.
+// HashSchema is a struct-hash type (dry-types' `Hash.schema({...})`). It embeds
+// [*baseType], so it *is* a [Type]: it composes with every combinator and with
+// [ArrayOf]. Build one with [NewSchema] and refine with [HashSchema.Strict].
 type HashSchema struct {
-	base   *baseType
+	*baseType
 	keys   []SchemaKey
 	strict bool
 }
@@ -45,7 +46,7 @@ type HashSchema struct {
 // NewSchema builds a Hash.schema type from its members.
 func NewSchema(keys ...SchemaKey) *HashSchema {
 	s := &HashSchema{keys: keys}
-	s.base = newType(s.coerce)
+	s.baseType = newType(s.coerce)
 	return s
 }
 
@@ -53,19 +54,13 @@ func NewSchema(keys ...SchemaKey) *HashSchema {
 // (dry-types' `.strict`), raising [*UnknownKeysError].
 func (s *HashSchema) Strict() *HashSchema {
 	cp := &HashSchema{keys: s.keys, strict: true}
-	cp.base = newType(cp.coerce)
+	cp.baseType = newType(cp.coerce)
 	return cp
 }
 
-// AsType exposes the schema as a [Type] so it composes with combinators and
-// [ArrayOf].
-func (s *HashSchema) AsType() *baseType { return s.base }
-
-// Call applies the schema.
-func (s *HashSchema) Call(input any) (any, error) { return s.base.Call(input) }
-
-// node lets *HashSchema satisfy Type directly.
-func (s *HashSchema) node() *baseType { return s.base }
+// AsType exposes the schema as a plain [Type] (identity — a *HashSchema already
+// is a Type; kept for readability at call sites).
+func (s *HashSchema) AsType() Type { return s.baseType }
 
 func (s *HashSchema) coerce(v any) (any, error) {
 	m, ok := asMap(v)
@@ -104,15 +99,8 @@ func (s *HashSchema) coerce(v any) (any, error) {
 		}
 		out.Set(k.Key, c)
 	}
-	// Preserve any extra (non-strict) keys as-is, after the schema keys.
-	for _, p := range m.Pairs() {
-		if sym, isSym := keyToSymbol(p.Key); isSym {
-			if _, isKnown := known[sym]; isKnown {
-				continue
-			}
-		}
-		out.Set(p.Key, p.Val)
-	}
+	// dry-types' default schema drops keys that are not declared members (only a
+	// `.strict` schema errors on them; both discard undeclared keys from output).
 	return out, nil
 }
 
@@ -124,7 +112,9 @@ func wrapSchemaErr(key Symbol, val any, err error) error {
 	if ce, ok := err.(*ConstraintError); ok {
 		rule = ce.Rule
 	} else {
-		rule = err.Error()
+		// A coercion failure inside a schema member reports its message as the
+		// rule with a trailing " failed" (dry-types wraps the coercion result).
+		rule = err.Error() + " failed"
 	}
 	msg := inspect(val) + " (" + valueClass(val) + ") has invalid type for :" + string(key) +
 		" violates constraints (" + rule + ")"

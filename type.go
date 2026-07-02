@@ -11,17 +11,40 @@ var Undefined = undefined{}
 
 type undefined struct{}
 
-// Type is a composable dry-types type: it coerces-and-validates an input.
+// Type is a composable dry-types type: it coerces-and-validates an input, and
+// carries the combinator methods so types chain fluently (e.g.
+// `StrictInteger().Constrained(...).Optional()`).
 //
 // Call applies the type: it returns the coerced value on success or a
 // [*CoercionError] / [*ConstraintError] / schema error on failure — the same
 // value and message the dry-types gem's `type[input]` produces.
+//
+// The interface is closed to this package (every Type is a *baseType) via the
+// unexported node method, which keeps combinator composition total.
 type Type interface {
 	// Call coerces and validates input, returning the coerced value or an error.
 	Call(input any) (any, error)
-	// callback is the internal single implementation point; Call delegates to it.
-	// It is unexported so the interface is closed to this package (every Type is
-	// a *baseType), which keeps combinator composition total.
+
+	// Optional returns a type that also accepts nil (dry-types' `.optional`).
+	Optional() Type
+	// Default substitutes val when the input is [Undefined] (`.default(val)`).
+	Default(val any) Type
+	// DefaultFn substitutes fn() when the input is [Undefined] (`.default { }`).
+	DefaultFn(fn func() any) Type
+	// Constructor pre-processes input through fn, then applies the base type.
+	Constructor(fn Callable) Type
+	// Meta returns a copy carrying the merged metadata (`.meta(...)`).
+	Meta(m map[string]any) Type
+	// GetMeta returns the attached metadata.
+	GetMeta() map[string]any
+	// Or returns the sum type `self | other` (`A | B`).
+	Or(other Type) Type
+	// Enum requires the coerced value to be one of values (`.enum(...)`).
+	Enum(values ...any) Type
+	// Constrained applies dry-logic predicates after coercion (`.constrained`).
+	Constrained(cs ...Constraint) Type
+
+	// node is the internal upcast to the single concrete implementation.
 	node() *baseType
 }
 

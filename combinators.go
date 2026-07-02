@@ -6,7 +6,7 @@ package drytypes
 
 // Optional returns a type that also accepts nil (dry-types' `.optional`, i.e.
 // `Nil | self`). A nil input yields nil; any other input goes through the base.
-func (b *baseType) Optional() *baseType {
+func (b *baseType) Optional() Type {
 	base := b.fn
 	return b.derive(func(v any) (any, error) {
 		if v == nil {
@@ -19,7 +19,7 @@ func (b *baseType) Optional() *baseType {
 // Default returns a type that substitutes val when the input is [Undefined]
 // (dry-types' `.default(val)`). The substituted value is returned as-is (the gem
 // does not re-run coercion on a static default).
-func (b *baseType) Default(val any) *baseType {
+func (b *baseType) Default(val any) Type {
 	base := b.fn
 	return b.derive(func(v any) (any, error) {
 		if _, ok := v.(undefined); ok {
@@ -31,7 +31,7 @@ func (b *baseType) Default(val any) *baseType {
 
 // DefaultFn returns a type whose default is produced by calling fn (dry-types'
 // `.default { ... }` block form).
-func (b *baseType) DefaultFn(fn func() any) *baseType {
+func (b *baseType) DefaultFn(fn func() any) Type {
 	base := b.fn
 	return b.derive(func(v any) (any, error) {
 		if _, ok := v.(undefined); ok {
@@ -43,7 +43,7 @@ func (b *baseType) DefaultFn(fn func() any) *baseType {
 
 // Constructor returns a type that first runs fn over the input, then applies the
 // base type to fn's result (dry-types' `.constructor(fn)`).
-func (b *baseType) Constructor(fn Callable) *baseType {
+func (b *baseType) Constructor(fn Callable) Type {
 	base := b.fn
 	return b.derive(func(v any) (any, error) {
 		return base(fn(v))
@@ -52,7 +52,7 @@ func (b *baseType) Constructor(fn Callable) *baseType {
 
 // Meta returns a copy of the type carrying the merged metadata (dry-types'
 // `.meta(...)`).
-func (b *baseType) Meta(m map[string]any) *baseType {
+func (b *baseType) Meta(m map[string]any) Type {
 	merged := map[string]any{}
 	for k, v := range b.meta {
 		merged[k] = v
@@ -74,7 +74,7 @@ func (b *baseType) GetMeta() map[string]any {
 // Or returns the sum type `self | other` (dry-types' `A | B`): it tries the base
 // first, then other; on total failure it reports other's error (matching the
 // gem, whose sum surfaces the right-hand branch's message).
-func (b *baseType) Or(other Type) *baseType {
+func (b *baseType) Or(other Type) Type {
 	left := b.fn
 	right := asBase(other).fn
 	return b.derive(func(v any) (any, error) {
@@ -88,7 +88,7 @@ func (b *baseType) Or(other Type) *baseType {
 // Enum returns a type that additionally requires the (coerced) value to be one of
 // values (dry-types' `.enum(...)`), reporting the `included_in?` constraint on a
 // miss.
-func (b *baseType) Enum(values ...any) *baseType {
+func (b *baseType) Enum(values ...any) Type {
 	base := b.fn
 	return b.derive(func(v any) (any, error) {
 		out, err := base(v)

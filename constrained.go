@@ -7,7 +7,6 @@ package drytypes
 import (
 	"math/big"
 	"regexp"
-	"sort"
 	"strings"
 	"unicode/utf8"
 )
@@ -24,7 +23,7 @@ type Constraint struct {
 // coercion/validation (dry-types' `.constrained(...)`). Predicates run in the
 // order given; the first failure reports the gem's `<pred>?(<arg>, <val>) failed`
 // (or the arity-1 `<pred>?(<val>) failed`) constraint message.
-func (b *baseType) Constrained(cs ...Constraint) *baseType {
+func (b *baseType) Constrained(cs ...Constraint) Type {
 	base := b.fn
 	return b.derive(func(v any) (any, error) {
 		out, err := base(v)
@@ -248,9 +247,9 @@ func valuesEqual(a, b any) bool {
 	return false
 }
 
-// keyList renders a slice of symbol keys as `[:a, :b]` for schema errors.
+// keyList renders a slice of symbol keys as `[:a, :b]` for schema errors, in the
+// order given (dry-types preserves the input hash's key order for unknown keys).
 func keyList(keys []Symbol) string {
-	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 	parts := make([]string, len(keys))
 	for i, k := range keys {
 		parts[i] = ":" + string(k)
