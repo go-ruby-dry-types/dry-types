@@ -1,0 +1,156 @@
+// Copyright (c) the go-ruby-dry-types/dry-types authors
+//
+// SPDX-License-Identifier: BSD-3-Clause
+
+package drytypes
+
+// ArrayOf returns a member-typed array type (dry-types' `Array.of(T)`): it first
+// requires an Array, then coerces every element through elem. The first element
+// failure surfaces that element's error (matching the gem).
+func ArrayOf(elem Type) *baseType {
+	member := asBase(elem).fn
+	return newType(func(v any) (any, error) {
+		arr, ok := v.([]any)
+		if !ok {
+			return nil, constraintErr(v, "type?(Array, "+inspect(v)+") failed")
+		}
+		out := make([]any, len(arr))
+		for i, e := range arr {
+			c, err := member(e)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = c
+		}
+		return out, nil
+	})
+}
+
+// SchemaKey is one member of a [HashSchema]: a key, its type, and whether the key
+// is optional (dry-types' trailing `?` on the key name).
+type SchemaKey struct {
+	Key      Symbol
+	Type     Type
+	Optional bool
+}
+
+// HashSchema is a struct-hash type (dry-types' `Hash.schema({...})`). Build one
+// with [NewSchema], refine with [HashSchema.Strict], and apply via Call.
+type HashSchema struct {
+	base   *baseType
+	keys   []SchemaKey
+	strict bool
+}
+
+// NewSchema builds a Hash.schema type from its members.
+func NewSchema(keys ...SchemaKey) *HashSchema {
+	s := &HashSchema{keys: keys}
+	s.base = newType(s.coerce)
+	return s
+}
+
+// Strict returns a copy of the schema that rejects unexpected keys
+// (dry-types' `.strict`), raising [*UnknownKeysError].
+func (s *HashSchema) Strict() *HashSchema {
+	cp := &HashSchema{keys: s.keys, strict: true}
+	cp.base = newType(cp.coerce)
+	return cp
+}
+
+// AsType exposes the schema as a [Type] so it composes with combinators and
+// [ArrayOf].
+func (s *HashSchema) AsType() *baseType { return s.base }
+
+// Call applies the schema.
+func (s *HashSchema) Call(input any) (any, error) { return s.base.Call(input) }
+
+// node lets *HashSchema satisfy Type directly.
+func (s *HashSchema) node() *baseType { return s.base }
+
+func (s *HashSchema) coerce(v any) (any, error) {
+	m, ok := asMap(v)
+	if !ok {
+		return nil, constraintErr(v, "type?(Hash, "+inspect(v)+") failed")
+	}
+	known := map[Symbol]SchemaKey{}
+	for _, k := range s.keys {
+		known[k.Key] = k
+	}
+	if s.strict {
+		var unknown []Symbol
+		for _, p := range m.Pairs() {
+			if sym, isSym := keyToSymbol(p.Key); isSym {
+				if _, ok := known[sym]; !ok {
+					unknown = append(unknown, sym)
+				}
+			}
+		}
+		if len(unknown) > 0 {
+			return nil, &UnknownKeysError{Message: "unexpected keys " + keyList(unknown) + " in Hash input"}
+		}
+	}
+	out := NewMap()
+	for _, k := range s.keys {
+		val, present := lookupKey(m, k.Key)
+		if !present {
+			if k.Optional {
+				continue
+			}
+			return nil, &MissingKeyError{Message: ":" + string(k.Key) + " is missing in Hash input"}
+		}
+		c, err := asBase(k.Type).Call(val)
+		if err != nil {
+			return nil, wrapSchemaErr(k.Key, val, err)
+		}
+		out.Set(k.Key, c)
+	}
+	// Preserve any extra (non-strict) keys as-is, after the schema keys.
+	for _, p := range m.Pairs() {
+		if sym, isSym := keyToSymbol(p.Key); isSym {
+			if _, isKnown := known[sym]; isKnown {
+				continue
+			}
+		}
+		out.Set(p.Key, p.Val)
+	}
+	return out, nil
+}
+
+// wrapSchemaErr turns a member failure into the gem's SchemaError shape,
+// `<val> (<Class>) has invalid type for :key <inner rule>`, reusing the inner
+// constraint rule when present.
+func wrapSchemaErr(key Symbol, val any, err error) error {
+	var rule string
+	if ce, ok := err.(*ConstraintError); ok {
+		rule = ce.Rule
+	} else {
+		rule = err.Error()
+	}
+	msg := inspect(val) + " (" + valueClass(val) + ") has invalid type for :" + string(key) +
+		" violates constraints (" + rule + ")"
+	return &SchemaError{Message: msg}
+}
+
+// keyToSymbol normalizes a hash key to a Symbol for schema matching (schema keys
+// are symbols; string keys are accepted and compared by name).
+func keyToSymbol(k any) (Symbol, bool) {
+	switch x := k.(type) {
+	case Symbol:
+		return x, true
+	case string:
+		return Symbol(x), true
+	}
+	return "", false
+}
+
+// lookupKey finds a schema key in the input map, accepting either a Symbol or a
+// String key of the same name.
+func lookupKey(m *Map, key Symbol) (any, bool) {
+	if v, ok := m.Get(key); ok {
+		return v, true
+	}
+	if v, ok := m.Get(string(key)); ok {
+		return v, true
+	}
+	return nil, false
+}
